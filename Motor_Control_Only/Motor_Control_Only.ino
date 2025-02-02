@@ -77,59 +77,8 @@ void setup() {
   pinMode(EN_B, OUTPUT);
 }
 
-void sendUltrasonicPulse() {
-  digitalWrite(trigPin, LOW);
-  delayMicroseconds(2);
-  digitalWrite(trigPin, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(trigPin, LOW);
-}
 
-int getDistance() {
-  sendUltrasonicPulse(); 
-  long duration = pulseIn(echoPin, HIGH); 
-  int distance = duration * 0.034 / 2; 
-  return distance;
-}
 
-// Function to read Red Pulse Widths
-int getRedPW() {
-	// Set sensor to read Red only
-	digitalWrite(S2,LOW);
-	digitalWrite(S3,LOW);
-	// Define integer to represent Pulse Width
-	int PW;
-	// Read the output Pulse Width
-	PW = pulseIn(sensorOut, LOW);
-	// Return the value
-	return PW;
-}
-
-// Function to read Green Pulse Widths
-int getGreenPW() {
-	// Set sensor to read Green only
-	digitalWrite(S2,HIGH);
-	digitalWrite(S3,HIGH);
-	// Define integer to represent Pulse Width
-	int PW;
-	// Read the output Pulse Width
-	PW = pulseIn(sensorOut, LOW);
-	// Return the value
-	return PW;
-}
-
-// Function to read Blue Pulse Widths
-int getBluePW() {
-	// Set sensor to read Blue only
-	digitalWrite(S2,LOW);
-	digitalWrite(S3,HIGH);
-	// Define integer to represent Pulse Width
-	int PW;
-	// Read the output Pulse Width
-	PW = pulseIn(sensorOut, LOW);
-	// Return the value
-	return PW;
-}
 
 void Motor_R(int speed){ //RIGHT MOTOR
 //Move forward --- Low Speed
@@ -230,50 +179,6 @@ void left(float unit){
 
 ///-------------------------------------------------------------------------------------------------------------------------------------------------------------/////
 void loop() {
-/*
-  int distance = getDistance();//-----------------------------------------------------------Distance Logic
-
-  //------------------------------------------------------------Color detection logic-----------------------------------------
-	// Read Red value
-	redPW = getRedPW();
-	// Map to value from 0-255
-	redRaw = map(redPW, redMin,redMax,255,0);
-	// Delay to stabilize sensor
-	delay(200);
-
-	// Read Green value
-	greenPW = getGreenPW();
-	// Map to value from 0-255
-	greenRaw = map(greenPW, greenMin,greenMax,255,0);
-	// Delay to stabilize sensor
-	delay(200);
-
-	// Read Blue value
-	bluePW = getBluePW();
-	// Map to value from 0-255
-	blueRaw = map(bluePW, blueMin,blueMax,255,0);
-	// Delay to stabilize sensor
-	delay(200);
-
-	// Print output to Serial Monitor
-  if (redRaw > greenRaw && redRaw > blueRaw){
-    Serial.print("Red = ");
-	  Serial.print("1");
-    Serial.print("\n");
-    redVal = 1;
-  }else if (blueRaw > greenRaw && blueRaw > redRaw){
-    Serial.print("blue = ");
-	  Serial.print("1");
-    Serial.print("\n");
-    blueVal = 1;
-  }else if (greenRaw > blueRaw && greenRaw > redRaw){
-    Serial.print("green = ");
-	  Serial.print("1");
-    Serial.print("\n");
-    greenVal = 1;
-  }
-
-*/
   //Motor Test
   int step = 1;
 
