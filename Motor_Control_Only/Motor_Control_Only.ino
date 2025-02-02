@@ -3,7 +3,7 @@
 #define S1 5
 #define S2 6
 #define S3 7
-#define sensorOut 8
+#define sensorOut 2
 #define OE_PIN 3
 
 
@@ -14,12 +14,13 @@ const int trigPin = 9;
 const int echoPin = 10;
 
 //Motor Pins
-int EN_A = 11; //Enable pin for first motor
-int IN1 = 9; //control pin for first motor
-int IN2 = 8; //control pin for first motor
-int IN3 = 7; //control pin for second motor
-int IN4 = 6; //control pin for second motor
-int EN_B = 10; //Enable pin for second motor
+int EN_A = A0;  // Left Motor Enable
+int IN1  = A1;  // Left Motor Control 1
+int IN2  = 10;  // Left Motor Control 2
+// Right Motor
+int IN3  = 11;  // Right Motor Control 1
+int IN4  = 12;  // Right Motor Control 2
+int EN_B = 13;  // Right Motor Enable (using an analog pin as digital)
 
 
 // Calibration Values
@@ -182,19 +183,11 @@ void loop() {
   //Motor Test
   int step = 1;
 
-  forward(step);
-  right(step);
-  forward(step);
-  left(step);
-  forward(step);
-
-  backward(step);
+  Motor_R(1);
+  Motor_(1);
 
 
-  //INFINIT STOP!!!!!!!!!!!!!!!!!!!!!!!!!!
-  while(true){
-    int x = 5;
-  }
+
   //------------------------------------------------------------Color detection logic-----------------------------------------
 
 }

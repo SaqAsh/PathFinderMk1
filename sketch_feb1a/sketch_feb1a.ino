@@ -7,22 +7,22 @@
 #define S1 5
 #define S2 6
 #define S3 7
-#define sensorOut 8
+#define sensorOut 2
 #define OE_PIN 3
 
 // --- Sonar Pins ---
-const int trigPin = 9;
-const int echoPin = 10;
+const int trigPin = 8;
+const int echoPin = 9;
 
 // --- Motor Pins (Reassigned for Arduino R4 Uno) ---
-// Left Motor
-int EN_A = 11;  // Left Motor Enable
-int IN1  = 12;  // Left Motor Control 1
-int IN2  = 13;  // Left Motor Control 2
+//Motor Pins
+int EN_A = A0;  // Left Motor Enable
+int IN1  = A1;  // Left Motor Control 1
+int IN2  = 10;  // Left Motor Control 2
 // Right Motor
-int EN_B = A2;  // Right Motor Enable (using an analog pin as digital)
-int IN3  = A0;  // Right Motor Control 1
-int IN4  = A1;  // Right Motor Control 2
+int IN3  = 11;  // Right Motor Control 1
+int IN4  = 12;  // Right Motor Control 2
+int EN_B = 13;  // Right Motor Enable (using an analog pin as digital)
 
 // --- LED Pin ---
 // We'll use the built-in LED to signal a correct tile detection.
@@ -130,17 +130,17 @@ void Motor_R(int speed) { // Right Motor (second motor)
   if (speed == -1) { // Move backward
     digitalWrite(IN3, LOW);
     digitalWrite(IN4, HIGH);
-    analogWrite(EN_B, 150);
+    digitalWrite(EN_B, 150);
   }
   if (speed == 0) { // Stop
     digitalWrite(IN3, LOW);
     digitalWrite(IN4, HIGH);
-    analogWrite(EN_B, 0);
+    digitalWrite(EN_B, 0);
   }
   if (speed == 1) { // Move forward
     digitalWrite(IN3, HIGH);
     digitalWrite(IN4, LOW);
-    analogWrite(EN_B, 150);
+    digitalWrite(EN_B, 150);
   }
 }
 
@@ -148,17 +148,17 @@ void Motor_L(int speed) { // Left Motor (first motor)
   if (speed == -1) { // Move backward
     digitalWrite(IN1, LOW);
     digitalWrite(IN2, HIGH);
-    analogWrite(EN_A, 150);
+    digitalWrite(EN_A, 150);
   }
   if (speed == 0) { // Stop
     digitalWrite(IN1, LOW);
     digitalWrite(IN2, HIGH);
-    analogWrite(EN_A, 0);
+    digitalWrite(EN_A, 0);
   }
   if (speed == 1) { // Move forward
     digitalWrite(IN1, HIGH);
     digitalWrite(IN2, LOW);
-    analogWrite(EN_A, 150);
+    digitalWrite(EN_A, 150);
   }
 }
 
@@ -386,33 +386,42 @@ void loop() {
   Serial.println(distance);
 
   // --- Navigation and Sequence Logic ---
-  // If no obstacle is near, process the current tile.
+  // Only process the tile if it is a valid detection and not too close to an obstacle
   if (distance > 10) {
-    // Only accept this tile if its color matches the expected sequence
-    // and if we have not already used this tile.
+    // Only process if the current tile color matches the sequence and it's not visited
     if (detectedColor == sequence[sequenceIndex] && !isTileVisited(currentX, currentY)) {
       // Blink LED to signal correct detection.
       blinkLED();
-      // Mark this tile as visited (with its detected color).
+      
+      // Mark this tile as visited with its detected color.
       markTileVisited(currentX, currentY, detectedColor);
-      // Also push its coordinate onto the backtracking stack.
+      
+      // Push its coordinate onto the backtracking stack.
       pushToStack(currentX, currentY);
+      
+      // Move to next color in the sequence
       sequenceIndex++;
-      Serial.println("Color matched! Moving to next in sequence.");
+      Serial.print("Color matched! Sequence index: ");
+      Serial.println(sequenceIndex);
+      
+      // Ensure we stay within bounds of the sequence
+      if (sequenceIndex >= sizeof(sequence) / sizeof(sequence[0])) {
+        Serial.println("Sequence complete!");
+        while (true);  // Halt the program after the sequence is complete
+      }
     } else if (isTileVisited(currentX, currentY)) {
+      // If it's a duplicate tile, skip and don't increment sequence index
       Serial.println("Duplicate tile detected, skipping.");
+    } else {
+      // If the color doesn't match the expected one, skip without advancing sequenceIndex
+      Serial.println("Color mismatch, skipping.");
     }
-    // Move forward one tile.
+    
+    // Move forward one tile regardless of color match
     moveOneStep();
   } else {
-    // If an obstacle is detected, initiate backtracking.
+    // If an obstacle is detected, initiate backtracking
     Serial.println("Obstacle detected! Initiating backtracking.");
     backtrack();
-  }
-
-  // If the sequence is complete, halt further execution.
-  if (sequenceIndex >= sizeof(sequence) / sizeof(sequence[0])) {
-    Serial.println("Sequence complete!");
-    while (true);  // Halt
   }
 }
