@@ -1,4 +1,10 @@
 // ===========================
+// Calibration Constants (adjust as needed)
+// ===========================
+#define TILE_DURATION 2000    // Time in ms to traverse one tile
+#define TURN_DURATION 1000     // Time in ms for a 90° turn
+
+// ===========================
 // Hardware Pin Definitions
 // ===========================
 
@@ -14,18 +20,17 @@
 const int trigPin = 8;
 const int echoPin = 9;
 
-// --- Motor Pins (Reassigned for Arduino R4 Uno) ---
-//Motor Pins
+// --- Motor Pins for L298N ---
+// Left Motor
 int EN_A = A0;  // Left Motor Enable
 int IN1  = A1;  // Left Motor Control 1
 int IN2  = 10;  // Left Motor Control 2
 // Right Motor
 int IN3  = 11;  // Right Motor Control 1
 int IN4  = 12;  // Right Motor Control 2
-int EN_B = 13;  // Right Motor Enable (using an analog pin as digital)
+int EN_B = 13;  // Right Motor Enable
 
 // --- LED Pin ---
-// We'll use the built-in LED to signal a correct tile detection.
 #define LED_PIN LED_BUILTIN
 
 // ===========================
@@ -47,26 +52,32 @@ int redRaw, greenRaw, blueRaw;
 char sequence[] = {'R', 'G', 'B', 'G', 'B'};
 int sequenceIndex = 0;
 
-// Global robot position and orientation (for a grid)
-// Start at (0,0), facing North.
+// Global robot position and orientation (grid coordinates)
+// Starting at (0,0), facing North.
 int currentX = 0;
 int currentY = 0;
-// Orientation: 0 = North, 1 = East, 2 = South, 3 = West
-int currentOrientation = 0;
+int currentOrientation = 0;  // 0 = North, 1 = East, 2 = South, 3 = West
 
-// Data structure for tracking visited tiles (i.e. tiles that have already contributed to the sequence)
+// -------------------------------
+// Visited Tile Data Structure
+// -------------------------------
 struct Tile { 
   int x; 
   int y; 
-  char color; // store the detected color for reference
+  char color;  // the detected color (for duplicate checking)
 };
 Tile visited[100];
 int visitedCount = 0;
 
-// Data structure for backtracking stack (stores tile coordinates)
+// -------------------------------
+// Backtracking Stack Data Structure
+// -------------------------------
+// Each decision point stores its grid coordinates plus a bitmask of attempted directions.
+// Bit mapping: bit0 = North, bit1 = East, bit2 = South, bit3 = West.
 struct StackTile { 
   int x; 
   int y; 
+  int attempted;
 };
 StackTile backtrackStack[100];
 int stackTop = -1;
@@ -75,6 +86,7 @@ void pushToStack(int x, int y) {
   stackTop++;
   backtrackStack[stackTop].x = x;
   backtrackStack[stackTop].y = y;
+  backtrackStack[stackTop].attempted = 0; // no directions attempted yet
 }
 
 StackTile popFromStack() {
@@ -87,8 +99,7 @@ bool isStackEmpty() {
   return stackTop == -1; 
 }
 
-// Check whether the current tile (position) has already been used for a correct color detection.
-// (This prevents using the same physical tile twice for repeated colors.)
+// Check if the current tile (x, y) has already been used for a correct color detection.
 bool isTileVisited(int x, int y) {
   for (int i = 0; i < visitedCount; i++) {
     if (visited[i].x == x && visited[i].y == y)
@@ -105,9 +116,8 @@ void markTileVisited(int x, int y, char color) {
 }
 
 // ===========================
-// Sensor Functions
+// Sensor Functions (unchanged)
 // ===========================
-
 void sendUltrasonicPulse() {
   digitalWrite(trigPin, LOW);
   delayMicroseconds(2);
@@ -124,119 +134,119 @@ int getDistance() {
 }
 
 // ===========================
-// Motor Control Functions
+// Motor Control Functions (Refactored for L298N)
 // ===========================
-void Motor_R(int speed) { // Right Motor (second motor)
-  if (speed == -1) { // Move backward
-    digitalWrite(IN3, LOW);
-    digitalWrite(IN4, HIGH);
-    digitalWrite(EN_B, 150);
-  }
-  if (speed == 0) { // Stop
-    digitalWrite(IN3, LOW);
-    digitalWrite(IN4, HIGH);
-    digitalWrite(EN_B, 0);
-  }
-  if (speed == 1) { // Move forward
-    digitalWrite(IN3, HIGH);
-    digitalWrite(IN4, LOW);
-    digitalWrite(EN_B, 150);
-  }
+//
+// For the L298N, to move a motor you set the IN pins appropriately,
+// and set the corresponding EN pin HIGH (to run) or LOW (to stop).
+//
+// Note: We assume “unit” movements where the delay represents a full-tile traverse or a 90° turn.
+
+// Move forward for "units" tiles.
+void forwardMove(float units) {
+  // Set left motor forward: IN1 HIGH, IN2 LOW.
+  digitalWrite(IN1, HIGH);
+  digitalWrite(IN2, LOW);
+  digitalWrite(EN_A, 120);
+  // Set right motor forward: IN3 HIGH, IN4 LOW.
+  digitalWrite(IN3, HIGH);
+  digitalWrite(IN4, LOW);
+  digitalWrite(EN_B, 120);
+
+  delay(TILE_DURATION * units);
+  // Stop motors.
+  digitalWrite(EN_A, LOW);
+  digitalWrite(EN_B, LOW);
+  delay(200);
 }
 
-void Motor_L(int speed) { // Left Motor (first motor)
-  if (speed == -1) { // Move backward
-    digitalWrite(IN1, LOW);
-    digitalWrite(IN2, HIGH);
-    digitalWrite(EN_A, 150);
-  }
-  if (speed == 0) { // Stop
-    digitalWrite(IN1, LOW);
-    digitalWrite(IN2, HIGH);
-    digitalWrite(EN_A, 0);
-  }
-  if (speed == 1) { // Move forward
-    digitalWrite(IN1, HIGH);
-    digitalWrite(IN2, LOW);
-    digitalWrite(EN_A, 150);
-  }
+// Move backward for "units" tiles.
+void backwardMove(float units) {
+  // Left motor backward: IN1 LOW, IN2 HIGH.
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, HIGH);
+  digitalWrite(EN_A, 120);
+  // Right motor backward: IN3 LOW, IN4 HIGH.
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, HIGH);
+  digitalWrite(EN_B, 120);
+
+  delay(TILE_DURATION * units);
+  digitalWrite(EN_A, LOW);
+  digitalWrite(EN_B, LOW);
+  delay(200);
 }
 
-// Basic movement commands (assume one unit = one tile)
-void forward(float unit) {
-  Motor_R(1);
-  Motor_L(1);
-  delay(200 * unit);
-  Motor_R(0);
-  Motor_L(0);
-  delay(200 * unit);
+// Turn right (90°) for "units" (units typically = 1).
+void rightTurnMove(float units) {
+  // To turn right, run left motor forward and right motor backward.
+  digitalWrite(IN1, HIGH);
+  digitalWrite(IN2, LOW);
+  digitalWrite(EN_A, 120);
+
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, HIGH);
+  digitalWrite(EN_B, 120);
+
+  delay(TURN_DURATION * units);
+  digitalWrite(EN_A, LOW);
+  digitalWrite(EN_B, LOW);
+  delay(200);
 }
 
-void backward(float unit) {
-  Motor_R(-1);
-  Motor_L(-1);
-  delay(200 * unit);
-  Motor_R(0);
-  Motor_L(0);
-  delay(200 * unit);
-}
+// Turn left (90°) for "units".
+void leftTurnMove(float units) {
+  // To turn left, run left motor backward and right motor forward.
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, HIGH);
+  digitalWrite(EN_A, 120);
 
-void rightTurn(float unit) {
-  Motor_R(-1);
-  Motor_L(1);
-  delay(200 * unit);
-  Motor_R(0);
-  Motor_L(0);
-  delay(200 * unit);
-}
-
-void leftTurn(float unit) {
-  Motor_R(1);
-  Motor_L(-1);
-  delay(200 * unit);
-  Motor_R(0);
-  Motor_L(0);
-  delay(200 * unit);
+  digitalWrite(IN3, HIGH);
+  digitalWrite(IN4, LOW);
+  digitalWrite(EN_B, 120);
+  delay(TURN_DURATION * units);
+  digitalWrite(EN_A, LOW);
+  digitalWrite(EN_B, LOW);
+  delay(200);
 }
 
 // ===========================
 // Navigation Helper Functions
 // ===========================
 
-// Turn the robot to face targetOrientation (0 = North, 1 = East, 2 = South, 3 = West)
+// Turn the robot to face targetOrientation (0 = North, 1 = East, 2 = South, 3 = West).
+// The currentOrientation is updated accordingly.
 void turnTo(int targetOrientation) {
   int diff = targetOrientation - currentOrientation;
-  if(diff < 0)
+  if (diff < 0)
     diff += 4;
-  if(diff == 0) {
-    // Already facing the target
-    return;
-  } else if(diff == 1) {
-    rightTurn(1);
+  if (diff == 0) {
+    return; // Already facing target.
+  } else if (diff == 1) {
+    rightTurnMove(1);
     currentOrientation = (currentOrientation + 1) % 4;
-  } else if(diff == 2) {
-    // Two right turns
-    rightTurn(1);
-    rightTurn(1);
+  } else if (diff == 2) {
+    rightTurnMove(1);
+    rightTurnMove(1);
     currentOrientation = (currentOrientation + 2) % 4;
-  } else if(diff == 3) {
-    leftTurn(1);
+  } else if (diff == 3) {
+    leftTurnMove(1);
     currentOrientation = (currentOrientation + 3) % 4;
   }
   Serial.print("New Orientation: ");
   Serial.println(currentOrientation);
 }
 
-// Move one tile forward and update the current position based on orientation.
+// Move one tile forward (using calibrated forwardMove) and update grid coordinates.
 void moveOneStep() {
-  forward(1);
-  if(currentOrientation == 0)        // Facing North
+  forwardMove(1);
+  if (currentOrientation == 0)         // North
     currentY++;
-  else if(currentOrientation == 1)   // Facing East
+  else if (currentOrientation == 1)    // East
     currentX++;
-  else if(currentOrientation == 2)   // Facing South
+  else if (currentOrientation == 2)    // South
     currentY--;
-  else if(currentOrientation == 3)   // Facing West
+  else if (currentOrientation == 3)    // West
     currentX--;
   
   Serial.print("New Position: (");
@@ -247,61 +257,103 @@ void moveOneStep() {
 }
 
 // ===========================
-// Backtracking Function
+// Robust Backtracking Algorithm
 // ===========================
-// Moves the robot from its current position back along the stored path.
+// When an obstacle is detected, this algorithm examines the current decision point (top of stack)
+// and attempts to find an untried adjacent tile. If none is found, it pops the decision point and
+// moves backward one tile, updating the current grid coordinates.
 void backtrack() {
   Serial.println("Initiating backtracking...");
-  while(stackTop >= 0) {
-    // Peek at the top of the stack (target tile)
-    StackTile target = backtrackStack[stackTop];
+  
+  while (stackTop >= 0) {
+    // Look at the top of the stack: current decision point.
+    StackTile currentTile = backtrackStack[stackTop];
+    bool foundAlternative = false;
     
-    // If already at the target tile, pop it and continue.
-    if(currentX == target.x && currentY == target.y) {
+    // Check each unattempted direction (0 = North, 1 = East, 2 = South, 3 = West).
+    for (int dir = 0; dir < 4; dir++) {
+      if (!(currentTile.attempted & (1 << dir))) {
+        // Mark this direction as attempted.
+        backtrackStack[stackTop].attempted |= (1 << dir);
+        
+        // Turn to face that direction.
+        turnTo(dir);
+        int d = getDistance();
+        if (d > 10) {  // Clear path.
+          // Compute neighbor tile coordinates.
+          int newX = currentTile.x;
+          int newY = currentTile.y;
+          if (dir == 0) newY++;       // North
+          else if (dir == 1) newX++;  // East
+          else if (dir == 2) newY--;  // South
+          else if (dir == 3) newX--;  // West
+          
+          // Check that this neighbor is not already in our backtracking stack (avoid loops).
+          bool inStack = false;
+          for (int i = 0; i <= stackTop; i++) {
+            if (backtrackStack[i].x == newX && backtrackStack[i].y == newY) {
+              inStack = true;
+              break;
+            }
+          }
+          if (!inStack) {
+            // Move into the new tile.
+            moveOneStep();
+            pushToStack(currentX, currentY);
+            foundAlternative = true;
+            Serial.print("Alternative route found. New position: (");
+            Serial.print(currentX);
+            Serial.print(", ");
+            Serial.print(currentY);
+            Serial.println(")");
+            break;  // Exit loop – alternative found.
+          }
+        }
+      }
+    }
+    
+    if (foundAlternative) {
+      Serial.println("Exiting backtracking.");
+      return;
+    } else {
+      // No alternative at this decision point; pop it and move backward one tile.
+      Serial.println("No alternative found at current tile, backing up.");
       popFromStack();
-      continue;
+      backwardMove(1);
+      // Update current grid coordinates to the new top-of-stack, if available.
+      if (stackTop >= 0) {
+        currentX = backtrackStack[stackTop].x;
+        currentY = backtrackStack[stackTop].y;
+        Serial.print("Backtracked to tile: (");
+        Serial.print(currentX);
+        Serial.print(", ");
+        Serial.print(currentY);
+        Serial.println(")");
+      } else {
+        Serial.println("Backtracked to start; no alternatives available.");
+        break;
+      }
     }
-    
-    // Compute the difference (assumes adjacent tiles differ by 1)
-    int dx = target.x - currentX;
-    int dy = target.y - currentY;
-    int targetOrientation = currentOrientation;
-    
-    if(dx == 1)         targetOrientation = 1; // East
-    else if(dx == -1)   targetOrientation = 3; // West
-    else if(dy == 1)    targetOrientation = 0; // North
-    else if(dy == -1)   targetOrientation = 2; // South
-    else {
-      Serial.println("Error: non-adjacent tile encountered during backtracking.");
-      break;
-    }
-    
-    turnTo(targetOrientation);
-    moveOneStep();
-    delay(500); // Allow time for motion to settle
   }
   Serial.println("Backtracking complete.");
 }
 
 // ===========================
-// Color Sensor Reading Functions
+// Color Sensor Reading Functions (unchanged)
 // ===========================
 int getRedPW() {
-  // Set sensor to read Red only
   digitalWrite(S2, LOW);
   digitalWrite(S3, LOW);
   return pulseIn(sensorOut, LOW);
 }
 
 int getGreenPW() {
-  // Set sensor to read Green only
   digitalWrite(S2, HIGH);
   digitalWrite(S3, HIGH);
   return pulseIn(sensorOut, LOW);
 }
 
 int getBluePW() {
-  // Set sensor to read Blue only
   digitalWrite(S2, LOW);
   digitalWrite(S3, HIGH);
   return pulseIn(sensorOut, LOW);
@@ -336,37 +388,39 @@ void setup() {
   pinMode(trigPin, OUTPUT);
   pinMode(echoPin, INPUT);
 
-  // --- Motor Setup ---
+  // --- LED Setup ---
+  pinMode(LED_PIN, OUTPUT);
+
+  // --- Motor Pins Setup for L298N ---
   pinMode(EN_A, OUTPUT);
   pinMode(IN1, OUTPUT);
   pinMode(IN2, OUTPUT);
   pinMode(EN_B, OUTPUT);
   pinMode(IN3, OUTPUT);
   pinMode(IN4, OUTPUT);
-  
-  // --- LED Setup ---
-  pinMode(LED_PIN, OUTPUT);
 
   Serial.begin(9600);
-  Serial.println("Setup Complete (Arduino R4 Uno with remapped pins)");
+  Serial.println("Setup Complete (L298N with robust backtracking)");
   Serial.println("Starting at (0,0), facing North.");
+
+  // Initialize the backtracking stack with the starting tile.
+  pushToStack(currentX, currentY);
 }
 
 void loop() {
   // --- Color Detection Logic ---
-  // Read color sensor pulse widths and map to a 0-255 range.
   redPW = getRedPW();
   redRaw = map(redPW, redMin, redMax, 255, 0);
   delay(200);
-
+  
   greenPW = getGreenPW();
   greenRaw = map(greenPW, greenMin, greenMax, 255, 0);
   delay(200);
-
+  
   bluePW = getBluePW();
   blueRaw = map(bluePW, blueMin, blueMax, 255, 0);
   delay(200);
-
+  
   char detectedColor = 'N';
   if (redRaw > greenRaw && redRaw > blueRaw) {
     detectedColor = 'R';
@@ -380,47 +434,36 @@ void loop() {
   } else {
     Serial.println("No dominant color detected");
   }
-
+  
   int distance = getDistance();
   Serial.print("Distance: ");
   Serial.println(distance);
-
+  
   // --- Navigation and Sequence Logic ---
-  // Only process the tile if it is a valid detection and not too close to an obstacle
+  // If path is clear (distance > 10), process the tile.
   if (distance > 10) {
-    // Only process if the current tile color matches the sequence and it's not visited
+    // Only accept the tile if the detected color matches the next expected color
+    // and if this tile hasn’t been used before.
     if (detectedColor == sequence[sequenceIndex] && !isTileVisited(currentX, currentY)) {
-      // Blink LED to signal correct detection.
       blinkLED();
-      
-      // Mark this tile as visited with its detected color.
       markTileVisited(currentX, currentY, detectedColor);
-      
-      // Push its coordinate onto the backtracking stack.
       pushToStack(currentX, currentY);
-      
-      // Move to next color in the sequence
       sequenceIndex++;
       Serial.print("Color matched! Sequence index: ");
       Serial.println(sequenceIndex);
-      
-      // Ensure we stay within bounds of the sequence
       if (sequenceIndex >= sizeof(sequence) / sizeof(sequence[0])) {
         Serial.println("Sequence complete!");
-        while (true);  // Halt the program after the sequence is complete
+        while (true); // Halt execution.
       }
     } else if (isTileVisited(currentX, currentY)) {
-      // If it's a duplicate tile, skip and don't increment sequence index
       Serial.println("Duplicate tile detected, skipping.");
     } else {
-      // If the color doesn't match the expected one, skip without advancing sequenceIndex
       Serial.println("Color mismatch, skipping.");
     }
-    
-    // Move forward one tile regardless of color match
+    // Move forward one tile.
     moveOneStep();
   } else {
-    // If an obstacle is detected, initiate backtracking
+    // If an obstacle is detected (distance <= 10), initiate backtracking.
     Serial.println("Obstacle detected! Initiating backtracking.");
     backtrack();
   }
